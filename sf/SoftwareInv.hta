@@ -1,0 +1,425 @@
+<html>
+<head>
+<title>Software Inventory</title>
+
+<HTA:APPLICATION 
+                 APPLICATIONNAME="Software Inventory"
+                 BORDER="thin"
+                 maximizeButton="YES"
+                 minimizeButton="YES"
+                 font-family: Verdana, Arial, Helvetica;
+                 font-size: 350px;
+                 font-weight: bold;
+                 background-repeat: repeat;
+                 SCROLL="yes"
+                 SINGLEINSTANCE="yes"
+                 selection="no"
+                 showintaskbar="yes"
+                 singleinstance="yes"
+                 sysmenu="yes"
+                 version="1.0"
+                 icon=""
+                 WINDOWSTATE="normal"
+>
+
+<style type="text/css">
+body {
+	font: 8pt arial,sans-serif;
+	color: white;
+	background-color: black;
+	filter: progid:DXImageTransform.Microsoft.Gradient(Gradienttype=0, StartColorStr='#CCCC00', EndColorStr='#FFCC00');
+	padding: 0;
+	margin: 0;
+	height:
+
+a {
+	color: red;
+}
+
+td
+{
+	text-align: left;
+}
+
+.Button
+{
+	width: 12em;
+	margin: 4px 2em 4px 2em;
+}
+
+.btna
+{
+	border-right: 0px;
+	border-top: 0px;
+	font-size: 13px;
+	border-left: 0px;
+	width: 90px;
+	cursor: hand;
+	color: FF6600;
+	border-bottom: 0px;
+	font-family: arial, helvetica, sans-serif;
+	height: 22px;
+	background-color: transparent;
+}  
+
+.Center
+{
+	margin-left: auto;
+	margin-right: auto;
+	text-align: center;
+	font-size: 8pt;
+}
+
+.Left
+{
+	text-align: left;
+}
+
+.Red
+{
+	color: red;
+}
+
+.Right
+{
+	text-align: right;
+}
+
+.White
+{
+	color: white;
+}
+</style>
+
+</head>
+
+<script language="VBScript">
+Option Explicit
+
+
+' Global variables
+Dim clrBgErr, clrTxtErr
+Dim intUpdateSize, intVerMsgSize, intWindowHeight, intWindowWidth
+Dim strAppName, strAppVer, strComputer, strFileNames
+
+clrBgErr      = "#FF0000"
+clrTxtErr     = "#FFFFFF"
+
+Sub CopyClipboard
+	Document.ParentWindow.ClipboardData.SetData "text", ResultsHiddenText.Value
+End Sub
+
+
+Sub EditQuery
+	ComputerNameTextBox.Disabled      = False
+	ResultsTextArea.Value             = ""
+	ResultsHiddenText.Value           = ""
+	SPTextBox.Disabled                = False
+	CopyButton.Disabled               = True
+	RunButton.Disabled                = False
+	ResetButton.Disabled              = False
+	ComputerNameTextBox.Focus( )
+End Sub
+
+
+Function GetComputerName( )
+	Dim colItems, objItem, objWMIService
+
+	On Error Resume Next
+
+	Set objWMIService = GetObject( "winmgmts://./root/cimv2" )
+	If Err Then
+		ComputerNameTextBox.Style.backgroundColor = clrBgErr
+		ComputerNameTextBox.Style.Color           = clrTxtErr
+		ComputerNameTextBox.Focus( )
+		Err.Clear
+		On Error GoTo 0
+		EditQuery( )
+		Exit Function
+	End If
+
+	Set colItems = objWMIService.ExecQuery( "Select * from Win32_ComputerSystem" )
+	If Err Then
+		ComputerNameTextBox.Style.backgroundColor = clrBgErr
+		ComputerNameTextBox.Style.Color           = clrTxtErr
+		ComputerNameTextBox.Focus( )
+		Err.Clear
+		On Error GoTo 0
+		EditQuery( )
+		Exit Function
+	End If
+
+	For Each objItem in colItems
+		strComputer = objItem.Name
+	Next
+
+	On Error GoTo 0
+
+	ComputerNameTextBox.Value = strComputer
+	GetComputerName           = strComputer
+End Function
+
+
+Sub Inventory
+	Dim strSortDate
+
+	' Change mouse pointer to hourglass while checking for update
+	Document.Body.Style.Cursor   = "wait"
+
+	ComputerNameTextBox.Style.backgroundColor = ""
+	ComputerNameTextBox.Style.Color           = ""
+
+	strComputer = Trim( UCase( ComputerNameTextBox.Value ) )
+	If strComputer = "" Or strComputer = "." Then strComputer = GetComputerName( )
+'	End If
+	strSortDate    = Year( Now( ) ) & Right( "0" & Month( Now( ) ), 2 ) & Right( "0" & Day(   Now( ) ), 2 )
+
+	WinVer( strComputer )
+
+	ComputerNameTextBox.ReadOnly     = True
+	RunButton.Disabled               = True
+	ResetButton.Disabled             = True
+
+	ResultsTextArea.Value            = "WMI query in progress, please wait . . ."
+
+	window.setTimeout "ListSoftware( )", 10
+End Sub
+
+
+Sub ListSoftware( )
+	Dim arrProgram, arrSoftware
+	Dim i
+	Dim colItems, objItem, objWMIService
+	Dim strCsv, strKey, strOutput, strSortDate, strValue
+
+	strSortDate     = Year( Now( ) ) & Right( "0" & Month( Now( ) ), 2 ) & Right( "0" & Day(   Now( ) ), 2 )
+
+	ResultsHiddenText.Value = "Computer:"      & vbTab _
+	                        & "Name:"          & vbTab _
+	                        & "Version:"       & vbTab _
+	                        & "Vendor:"        & vbTab _
+	                        & "Install Date:"  & vbTab _
+	                        & "Package Cache:" & vbTab _
+	                        & "ID:"            & vbCrLf
+
+	Set arrSoftware   = CreateObject( "System.Collections.Sortedlist" )
+
+	On Error Resume Next
+
+	Set objWMIService = GetObject( "winmgmts://" & strComputer & "/root/CIMV2" )
+	If Err Then
+		ComputerNameTextBox.Style.backgroundColor = clrBgErr
+		ComputerNameTextBox.Style.Color           = clrTxtErr
+		ComputerNameTextBox.Focus( )
+		Err.Clear
+		On Error GoTo 0
+		EditQuery( )
+		Exit Sub
+	End If
+
+	Set colItems = objWMIService.ExecQuery( "SELECT * FROM Win32_Product" )
+	If Err Then
+		ComputerNameTextBox.Style.backgroundColor = clrBgErr
+		ComputerNameTextBox.Style.Color           = clrTxtErr
+		ComputerNameTextBox.Focus( )
+		Err.Clear
+		On Error GoTo 0
+		EditQuery( )
+		Exit Sub
+	End If
+
+	For Each objItem In colItems
+		If InStr( 1, objItem.Name, vbTextCompare ) > 0 Then
+			strKey   = objItem.Name & " " & objItem.Version
+			strValue = objItem.Name & vbTab & objItem.Version & vbTab & objItem.Vendor & vbTab & objItem.InstallDate & vbTab & objItem.PackageCache & vbTab & objItem.IdentifyingNumber
+			If arrSoftware.ContainsKey( strKey ) Then
+				Do While arrSoftware.ContainsKey( strKey )
+					strKey = strKey & " 0"
+				Loop
+			End If
+			arrSoftware.Add strKey, strValue
+		End If
+	Next
+
+	On Error Goto 0
+
+	ResultsTextArea.Value = ""
+
+	For i = 0 To arrSoftware.Count - 1
+		arrProgram = Split( arrSoftware.GetByIndex(i), vbTab )
+'		If InStr( 1, arrProgram(0), vbTextCompare ) > 0 And InStr( 1, arrProgram(2), vbTextCompare ) > 0 And arrProgram(3) <> 0 Then
+			strOutput  = "Name          :  " & arrProgram(0) & vbCrLf _
+			           & "Version       :  " & arrProgram(1) & vbCrLf _
+			           & "Vendor        :  " & arrProgram(2) & vbCrLf _
+			           & "Install Date  :  " & arrProgram(3) & vbCrLf _
+			           & "Package Cache :  " & arrProgram(4) & vbCrLf _
+			           & "ID            :  " & arrProgram(5) & vbCrLf & vbCrLf
+			ResultsTextArea.Value = ResultsTextArea.Value & strOutput
+			strCsv     = strComputer   & vbTab _
+			           & arrProgram(0) & vbTab _
+			           & arrProgram(1) & vbTab _
+			           & arrProgram(2) & vbTab _
+			           & arrProgram(3) & vbTab _
+			           & arrProgram(4) & vbTab _
+			           & arrProgram(5) & vbCrLf
+			ResultsHiddenText.Value = ResultsHiddenText.Value & strCsv
+'		End If
+	Next
+	CopyButton.Disabled  = False
+	ResetButton.Disabled = False
+
+	' Change mouse pointer back to default
+	Document.Body.Style.Cursor = "default"
+End Sub
+
+Sub PasteClipboardPC
+	ComputerNameTextBox.Value = Document.ParentWindow.ClipboardData.GetData( "text" )
+End Sub
+
+Sub RestoreWindowSize( )
+	If blnUpdate Then
+		intUpdateSize = 200
+	Else
+		intUpdateSize = 0
+	End If
+	' Disabled error handling to prevent an error message but no error when the window is resized by doubleclicking the title bar
+	On Error Resume Next
+	WindowSize intWindowWidth, intWindowHeight + intUpdateSize
+	On Error Goto 0
+End Sub
+
+
+Function TextFromHTML( myURL )
+    Dim objHTTP
+    TextFromHTML = ""
+    Set objHTTP = CreateObject( "WinHttp.WinHttpRequest.5.1" )
+    objHTTP.Open "GET", myURL
+    objHTTP.Send
+    ' Check if the result was valid, and if so return the result
+    If objHTTP.Status = 200 Then
+    	TextFromHTML = objHTTP.ResponseText
+    End If
+    Set objHTTP = Nothing
+End Function
+
+
+Sub Window_Onload
+	WindowSize 780, 580
+	ComputerNameTextBox.ReadOnly     = False
+	ComputerNameTextBox.Value        = ""
+	ResultsTextArea.Value            = ""
+	ResultsHiddenText.Value          = ""
+	WindowsTextBox.Value             = ""
+	SPTextBox.Value                  = ""
+	CopyButton.Disabled              = True
+	RunButton.Disabled               = False
+	ResetButton.Disabled             = False
+	ComputerNameTextBox.Focus( )
+End Sub
+
+
+Sub WindowSize( intWidth, intHeight )
+	On Error Resume Next
+	Dim posWidth, posHeight
+	If intWidth  > window.screen.width  Then intWidth  = window.screen.width
+	If intHeight > window.screen.height Then intHeight = window.screen.height
+	posWidth  = ( window.screen.width  - intWidth  ) / 2
+	posHeight = ( window.screen.height - intHeight ) / 2
+	If posWidth  < 0 Then posWidth  = 0
+	If posHeight < 0 Then posHeight = 0
+	window.resizeTo intWidth, intHeight
+	window.moveTo posWidth, posHeight
+	On Error GoTo 0
+End Sub
+
+
+Sub WinVer( strComputer )
+	Dim colItems, objItem, objWMIService
+	On Error Resume Next
+	Set objWMIService = GetObject( "winmgmts://" & strComputer & "/root/cimv2" )
+	If Err Then
+		ComputerNameTextBox.Style.backgroundColor = clrBgErr
+		ComputerNameTextBox.Style.Color           = clrTxtErr
+		ComputerNameTextBox.Focus( )
+		Err.Clear
+		On Error GoTo 0
+		EditQuery( )
+		Exit Sub
+	End If
+	Set colItems = objWMIService.ExecQuery("Select * from Win32_OperatingSystem",,48)
+	If Err Then
+		ComputerNameTextBox.Style.backgroundColor = clrBgErr
+		ComputerNameTextBox.Style.Color           = clrTxtErr
+		ComputerNameTextBox.Focus( )
+		Err.Clear
+		On Error GoTo 0
+		EditQuery( )
+		Exit Sub
+	End If
+	For Each objItem in colItems
+		WindowsTextBox.Value = Split( objItem.Caption, " ", 2, vbTextCompare )(1)
+		SPTextBox.Value      = objItem.CSDVersion
+	Next
+	On Error GoTo 0
+End Sub
+</script>
+
+<body>
+
+<div align=center class="Center">
+
+<P><H2>SOFTWARE INVENTORY</H2></P>
+
+<span id="Update">&nbsp;</span>
+
+<table class="Center">
+<tr>
+    <th class="Right">Computer Name:</th>
+    <td>&nbsp;&nbsp;&nbsp;</td>
+    <td class="Center"><input type="text" name="ComputerNameTextBox" size="20" title="Fill in a remote computer name or leave this field blank to query the local computer."></td>
+    <td>&nbsp;&nbsp;&nbsp;</td>
+    <td class="left"><input id="RunButton" class="Button" type="button" value="Inventory" name="RunButton" onclick="window.setTimeout 'Inventory', 1" title="Click here to start the inventory"></td>
+</tr>
+<tr>
+    <th class="Right">Windows Version:</th>
+    <td>&nbsp;&nbsp;&nbsp;</td>
+    <td class="Center"><input name="WindowsTextBox" id="WindowsTextBox" size="20" readonly="readonly" title="This read-only field will display the Windows version."></td>
+    <td colspan="2">&nbsp;&nbsp;&nbsp;</td>
+</tr>
+<tr>
+    <th class="Right">ServicePack:</th>
+    <td>&nbsp;&nbsp;&nbsp;</td>
+    <td class="Center"><input name="SPTextBox" id="SPTextBox" size="20" readonly="readonly" title="This read-only field will display Windows' latest installed ServicePack."></td>
+    <td colspan="2">&nbsp;&nbsp;&nbsp;</td>
+</tr>
+<tr>
+    <td colspan="5">&nbsp;</td>
+</tr>
+<tr>
+    <td colspan="5"><input type="hidden" name="ResultsHiddenText" id="ResultsHiddenText"></td>
+</tr>
+<tr>
+    <td colspan="5">&nbsp;</td>
+</tr>
+<tr>
+    <td colspan="5" class="Center"><textarea name="ResultsTextArea" id="ResultsTextArea" rows="10" cols="60" readonly="readonly" title="This read-only field will display all software that has been installed by Windows' Installer."></textarea></td>
+</tr>
+<tr>
+    <td colspan="5">&nbsp;</td>
+</tr>
+</table>
+<table>
+<tr align=center>
+	<td class="Center"><input id="CopyButton" class="Button" type="button" value="Copy" name="CopyButton" onclick="CopyClipboard" title="Click here to copy the results to the clipboard. The data in the clipboard will be in tab delimited format. Paste the data in a spreadsheet, using tab as the only delimiter, to create reports."></td>
+    <td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+	<td class="center"><input id="ResetButton" class="Button" type="button" value="Reset" name="ResetButton" onclick="Location.Reload(True)" title="Click here to clear all fields"></td>
+</tr>
+<tr>
+    <td colspan="5">&nbsp;</td>
+</tr>
+</table>
+
+</div>
+
+</body>
+</html>
